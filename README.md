@@ -1,4 +1,4 @@
-# Nonparametric Interaction Detection R Code
+# Nonparametric Interactions R Code
 
 The in progress R code in this repository is being used to evaluate the properties of various approaches for detecting and estimating effect heterogeneity using parametric singly robust and nonparametric doubly robust estimators.
 
