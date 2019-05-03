@@ -3,7 +3,7 @@
 #setwd(".")
 
 packages <- c("foreach","doParallel","doRNG","boot","rmutil","mvtnorm","gam","sandwich","ggplot2",
-              "devtools","glmnet","data.table","rpart","ranger","nnet","arm","earth","e1071")
+              "devtools","glmnet","data.table","rpart","ranger","nnet","arm","earth","e1071","tidyverse")
 
 for (package in packages) {
   if (!require(package, character.only=T, quietly=T)) {
@@ -99,8 +99,6 @@ interaction_sim<-function(counter){
   mod2_0 <- lm(y~x+c1+c2,data=subset(dat,m==0))
   mod2_1 <- lm(y~x+c1+c2,data=subset(dat,m==1))
 
-
-
   folds<-c(10)
   cat("Number of cross-validation folds is",folds,'\n');flush.console()
   tmle_strat0 <- tmle(Y0,X0,C0,family="gaussian",
@@ -123,8 +121,8 @@ interaction_sim<-function(counter){
   pihat_1 <- ifelse(pihat_1 < 0.025,0.025,pihat_1)
   pihat_1 <- ifelse(pihat_1 > 1-0.025,1-0.025,pihat_1)
 
-  muhat_0  <- tmle_strat0$Qinit$Q[,2]*A+tmle_strat0$Qinit$Q[,1]*(1-A)
-  muhat_1  <- tmle_strat1$Qinit$Q[,2]*A+tmle_strat1$Qinit$Q[,1]*(1-A)
+  muhat_0  <- tmle_strat0$Qinit$Q[,2]*X0+tmle_strat0$Qinit$Q[,1]*(1-X0)
+  muhat_1  <- tmle_strat1$Qinit$Q[,2]*X1+tmle_strat1$Qinit$Q[,1]*(1-X1)
 
   muhat1_0  <- tmle_strat0$Qinit$Q[,2]
   muhat1_1  <- tmle_strat1$Qinit$Q[,2]
@@ -143,7 +141,7 @@ interaction_sim<-function(counter){
   lower_bound <- min(y) - max(y)
   upper_bound <- max(y) - min(y)
 
-  aipw_strat0 <- mean((((2*X0-1)*(Y0 - muhat_0))/((2*X0-1)*pihat_0 + (1-X0)) + muhat1_0 - muhat0_0))
+  aipw_strat0 <- mean((((2*X0-1)*(Y0 - muhat_0))/((2*X0-1)*pihat_0 + (1-X0)) + muhat1_0 - muhat0_0)) ## inside the mean is EIE_aipw
   aipw_strat1 <- mean((((2*X1-1)*(Y1 - muhat_1))/((2*X1-1)*pihat_1 + (1-X1)) + muhat1_1 - muhat0_1))
   aipw_strat0 <- ifelse(aipw_strat0>upper_bound,upper_bound,aipw_strat0)
   aipw_strat0 <- ifelse(aipw_strat0<lower_bound,lower_bound,aipw_strat0)
@@ -151,56 +149,65 @@ interaction_sim<-function(counter){
   aipw_strat1 <- ifelse(aipw_strat1>upper_bound,upper_bound,aipw_strat1)
   aipw_strat1 <- ifelse(aipw_strat1<lower_bound,lower_bound,aipw_strat1)
 
-  res.est$aipw_strat0[i]  <- aipw_strat0
-  res.est$aipw_strat1[i]  <- aipw_strat1
+  res.est$AIPW_strat0[i]  <- aipw_strat0
+  res.est$AIPW_strat1[i]  <- aipw_strat1
 
-  res.est$tmle_strat0[i]<-tmle_strat0$estimates$ATE$psi
-  res.est$tmle_strat1[i]<-tmle_strat1$estimates$ATE$psi
+  res.est$TMLE_strat0[i]<-tmle_strat0$estimates$ATE$psi
+  res.est$TMLE_strat1[i]<-tmle_strat1$estimates$ATE$psi
 
   # compute closed-form SEs
   res.se$glm0[i] <- sqrt(vcov(mod1)["x","x"])
   res.se$glm1[i] <- sqrt(vcov(mod1)["x","x"] + vcov(mod1)["m","m"] - 2*vcov(mod1)["x","m"])
 
-  res.se$glm_strat0[i] <- sqrt(vcov(mod2_0)["x"])
-  res.se$glm_strat1[i] <- sqrt(vcov(mod2_1)["x"])
+  res.se$glm_strat0[i] <- sqrt(vcov(mod2_0)["x","x"])
+  res.se$glm_strat1[i] <- sqrt(vcov(mod2_1)["x","x"])
 
   aipw_strat0_se <- sd((((2*X0-1)*(Y0 - muhat_0))/((2*X0-1)*pihat_0 + (1-X0)) + muhat1_0 - muhat0_0))/sqrt(nrow(C0))
   aipw_strat1_se <- sd((((2*X1-1)*(Y1 - muhat_1))/((2*X1-1)*pihat_1 + (1-X1)) + muhat1_1 - muhat0_1))/sqrt(nrow(C1))
 
-  res.se$aipw_strat0[i]  <- aipw_strat0_se
-  res.se$aipw_strat1[i]  <- aipw_strat1_se
+  res.se$AIPW_strat0[i]  <- aipw_strat0_se
+  res.se$AIPW_strat1[i]  <- aipw_strat1_se
 
-  res.se$tmle_strat0[i] <- sqrt(tmle_strat0$estimates$ATE$var.psi)
-  res.se$tmle_strat1[i] <- sqrt(tmle_strat1$estimates$ATE$var.psi)
+  res.se$TMLE_strat0[i] <- sqrt(tmle_strat0$estimates$ATE$var.psi)
+  res.se$TMLE_strat1[i] <- sqrt(tmle_strat1$estimates$ATE$var.psi)
 
 
   # print updating results
-  res.cov <- res.est-1.96*res.se < true & true < res.est+1.96*res.se
+
+  res.est0 <- res.est %>% select(ends_with("0"))
+  res.est1 <- res.est %>% select(ends_with("1"))
+
+  res.se0 <- res.se %>% select(ends_with("0"))
+  res.se1 <- res.se %>% select(ends_with("1"))
+
+  res.cov0 <- res.est0-1.96*res.se0 < true1 & true1 < res.est0+1.96*res.se0
+  res.cov1 <- res.est1-1.96*res.se1 < true2 & true2 < res.est1+1.96*res.se1
+
   res.width <- (res.est+1.96*res.se) - (res.est-1.96*res.se)
-  tmp <- data.frame(rbind(c(n,apply(res.est-true,2,mean,na.rm=T)),
-                          c(n,apply((res.est-true)^2,2,mean,na.rm=T)),
-                          c(n,apply(res.cov,2,mean,na.rm=T)),
+  tmp <- data.frame(rbind(c(n,apply(res.est0-true1,2,mean,na.rm=T),apply(res.est1-true2,2,mean,na.rm=T)),
+                          c(n,apply((res.est0-true1)^2,2,mean,na.rm=T),apply((res.est1-true2)^2,2,mean,na.rm=T)),
+                          c(n,apply(res.cov0,2,mean,na.rm=T),apply(res.cov1,2,mean,na.rm=T)),
                           c(n,apply(res.width,2,mean,na.rm=T))))
-  tmp.se <- data.frame(rbind(c(n,apply(res.se,2,mean,na.rm=T))))
+  tmp.se <- data.frame(rbind(c(n,apply(res.se0,2,mean,na.rm=T),apply(res.se1,2,mean,na.rm=T))))
   rownames(tmp)<-c("bias","rmse","cov","width");colnames(tmp)[1]<-"N";print(round(tmp,3));cat('\n');flush.console()
   colnames(tmp.se)[1]<-"N"
   setDT(tmp, keep.rownames = TRUE)[];colnames(tmp)[1] <- "type"
 
-  # if(i==1&samp==1){
-  #   write.table(tmp,"./results.txt",sep="\t",row.names=F)
-  #   write.table(tmp.se,"./results_se.txt",sep="\t",row.names=F)
-    # } else{
-  #   write.table(tmp,"./results.txt",sep="\t",row.names=F,col.names=F,append=T)
-  #   write.table(tmp.se,"./results_se.txt",sep="\t",row.names=F,col.names=F,append=T)
-  # }
+  if(i==1){
+    write.table(tmp,"./output/results.txt",sep="\t",row.names=F)
+    write.table(tmp.se,"./output/results_se.txt",sep="\t",row.names=F)
+  } else{
+    write.table(tmp,"./output/results.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(tmp.se,"./output/results_se.txt",sep="\t",row.names=F,col.names=F,append=T)
+  }
   return(tmp)
 }
 
-interaction_sim(1)
+interaction_sim(3)
 
 start_time <- Sys.time()
 cores<-detectCores()-2
 print(cores)
-results<-mclapply(1:2, function(x) interaction_sim(x),mc.cores=cores,mc.set.seed=F)
+results<-mclapply(1:5, function(x) interaction_sim(x),mc.cores=cores,mc.set.seed=F)
 ## run time:
 Sys.time() - start_time
