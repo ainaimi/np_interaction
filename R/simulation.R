@@ -2,7 +2,7 @@
 #args=(commandArgs(TRUE))
 #setwd(".")
 
-packages <- c("foreach","doParallel","doRNG","boot","rmutil","mvtnorm","gam","sandwich","ggplot2",
+packages <- c("foreach","doParallel","boot","rmutil","mvtnorm","gam","sandwich","ggplot2",
               "devtools","glmnet","data.table","rpart","ranger","nnet","arm","earth","e1071","tidyverse")
 
 for (package in packages) {
@@ -53,7 +53,7 @@ interaction_sim<-function(counter){
   # confounders
   sigma<-matrix(0,nrow=p,ncol=p);diag(sigma)<-1
   c <- rmvnorm(n, mean=rep(0,p), sigma=sigma)
-
+  
   # design matrix for outcome model
 
   muMatT<-model.matrix(as.formula(paste("~(",paste("c[,",1:ncol(c),"]",collapse="+"),")")))
@@ -129,6 +129,54 @@ interaction_sim<-function(counter){
 
   muhat0_0  <- tmle_strat0$Qinit$Q[,1]
   muhat0_1  <- tmle_strat1$Qinit$Q[,1]
+  
+  ## for the "auto" versions
+  #### step 1: fit the estimators in overall data
+  
+  #### TMLE version
+  Z <- cbind(M,C)
+  tmle_res <- tmle(Y,X,Z,family="gaussian",
+                      Q.SL.library=sl.lib_mu,g.SL.library=sl.lib_pi,
+                      V=folds)
+  
+  tmle_EFF <- tmle_res$Qstar[,2] - tmle_res$Qstar[,1]
+  
+  pihat <- tmle_res$g$g1W
+  pihat <- ifelse(pihat < 0.025,0.025,pihat)
+  pihat <- ifelse(pihat > 1-0.025,1-0.025,pihat)
+  
+  muhat  <- tmle_res$Qinit$Q[,2]*X+tmle_res$Qinit$Q[,1]*(1-X)
+  muhat1  <- tmle_res$Qinit$Q[,2]
+  muhat0  <- tmle_res$Qinit$Q[,1]
+
+  aipw_EFF <- as.numeric((((2*X-1)*(Y - muhat))/((2*X-1)*pihat + (1-X)) + muhat1 - muhat0)) ## inside the mean is EIE_aipw
+  
+  ## we have to figure out what the best way to do this is:
+  np_dat <- tibble(Y_tmle_eff=tmle_EFF,Y_aipw_eff=aipw_EFF,M=M,C1=C[,1],C2=C[,2])
+  
+  ranger_tmle_eff <- ranger(Y_tmle_eff ~ .,data=np_dat)
+  ranger_aipw_eff <- ranger(Y_aipw_eff ~ .,data=np_dat)
+  
+  np_dat0 <- np_dat %>% mutate(M=0)
+  np_dat1 <- np_dat %>% mutate(M=1)
+  
+  mu_tmle_eff0 <- predict(ranger_tmle_eff,data=np_dat0)$pred
+  mu_tmle_eff1 <- predict(ranger_tmle_eff,data=np_dat1)$pred
+  
+  mu_aipw_eff0 <- predict(ranger_aipw_eff,data=np_dat0)$pred
+  mu_aipw_eff1 <- predict(ranger_aipw_eff,data=np_dat1)$pred
+  
+  mean(mu_tmle_eff0)
+  mean(mu_tmle_eff1)
+  
+  mean(mu_aipw_eff0)
+  mean(mu_aipw_eff1)
+  
+
+  
+  
+  
+  
 
 
   # compute estimators
