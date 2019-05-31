@@ -149,6 +149,7 @@ interaction_sim<-function(counter){
   muhat1  <- tmle_res$Qinit$Q[,2]
   muhat0  <- tmle_res$Qinit$Q[,1]
 
+
   aipw_EFF <- as.numeric((((2*X-1)*(Y - muhat))/((2*X-1)*pihat + (1-X)) + muhat1 - muhat0)) ## inside the mean is EIE_aipw
   
   ## we have to figure out what the best way to do this is:
@@ -171,12 +172,6 @@ interaction_sim<-function(counter){
   
   mean(mu_aipw_eff0)
   mean(mu_aipw_eff1)
-  
-
-  
-  
-  
-  
 
 
   # compute estimators
